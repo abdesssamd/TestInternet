@@ -86,6 +86,7 @@ $activePage = 'devices';
 
 <script src="<?= APP_BASE_PATH ?>/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="<?= APP_BASE_PATH ?>/assets/js/app.js"></script>
+<script src="<?= APP_BASE_PATH ?>/assets/js/notifications.js"></script>
 <script>
 let state = { search: '', internet: '', wifi: '', ethernet: '', status: '', sort: 'hostname', dir: 'ASC', page: 1, per_page: 25 };
 let debounceTimer = null;

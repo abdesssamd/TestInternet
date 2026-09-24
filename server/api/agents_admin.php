@@ -79,7 +79,15 @@ if ($action === 'set_internet_blocked') {
     }
 
     $by = (string) ($_SESSION['username'] ?? 'inconnu');
-    AgentModel::setInternetBlocked($id, $blocked, $by);
+
+    $reason = trim((string) ($payload['reason'] ?? ''));
+    if ($reason === '') {
+        $reason = null;
+    } elseif (mb_strlen($reason) > 255) {
+        $reason = mb_substr($reason, 0, 255);
+    }
+
+    AgentModel::setInternetBlocked($id, $blocked, $by, $reason);
 
     // Tracer la demande des maintenant : l'application effective sera
     // journalisee separement quand l'agent aura confirme.
@@ -88,6 +96,7 @@ if ($action === 'set_internet_blocked') {
         $blocked ? 'INTERNET_BLOCK_REQUESTED' : 'INTERNET_UNBLOCK_REQUESTED',
         ($blocked ? 'Coupure Internet demandee' : 'Retablissement Internet demande')
             . " pour {$agent['hostname']} par $by"
+            . ($reason !== null ? " — motif : $reason" : '')
     );
 
     echo json_encode([

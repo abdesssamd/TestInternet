@@ -255,6 +255,47 @@ Concrètement, un utilisateur qui débloque Internet sur son poste ne passe pas 
 > **Limite résiduelle :** un administrateur local déterminé peut modifier l'agent pour qu'il mente sur **les deux** champs à la fois (déclarer le blocage actif *et* déclarer Internet inaccessible). Le recoupement ci-dessus ne le détecte alors plus. Pour un blocage réellement opposable à un utilisateur admin de sa machine, il faut filtrer **en dehors du poste** : règle sur le routeur/pare-feu réseau, ou filtrage par adresse MAC/IP côté switch. Le mécanisme livré ici vise un parc d'utilisateurs standards, pas un adversaire disposant des droits admin.
 
 
+## 9 ter. Notifications du navigateur (dashboard)
+
+Une cloche est disponible dans la barre supérieure du dashboard. Au premier clic, le navigateur demande l'autorisation ; ensuite, chaque **nouvelle alerte** déclenche une notification système Windows.
+
+- Les alertes **critiques** restent affichées jusqu'à ce que vous les fermiez ; les autres disparaissent seules.
+- Un clic sur la notification ouvre la page **Alertes**.
+- L'activation est mémorisée par navigateur et par poste (`localStorage`). Un second clic sur la cloche désactive.
+- À l'activation, les alertes déjà présentes ne sont pas renotifiées : seules les suivantes le sont.
+
+Le dashboard interroge le serveur toutes les 20 secondes. **Les notifications ne s'affichent que si un onglet du dashboard est ouvert** — il n'y a ni Service Worker ni service push externe, donc rien de plus à installer. Pour être averti sans dashboard ouvert, utiliser les notifications par email (section 10).
+
+> Si les notifications ont été refusées une fois, le navigateur ne redemande plus : il faut les réautoriser via l'icône à gauche de la barre d'adresse. Le bouton l'indique alors (cloche barrée).
+
+## 9 quater. Motif de coupure et message affiché sur le poste
+
+**Motif (facultatif)** — au moment de couper Internet, un champ permet de saisir une raison (ex : « Poste infecté - analyse en cours »). Elle est :
+- affichée dans le panneau **Accès Internet** tant que la coupure est active ;
+- enregistrée dans le journal des événements avec l'auteur de l'action ;
+- transmise à l'agent pour être montrée à l'utilisateur du poste.
+
+**Message sur le poste coupé** — dès que l'agent applique la coupure, l'utilisateur voit une boîte de dialogue Windows :
+
+```
+ACCES INTERNET INTERDIT SUR CE POSTE
+
+La connexion Internet a ete desactivee par l'administrateur reseau.
+
+Motif : Poste infecte - analyse en cours
+
+Le reseau local reste accessible.
+Contactez votre administrateur pour le retablissement.
+```
+
+Un message équivalent confirme le rétablissement. Le message reste à l'écran jusqu'à ce que l'utilisateur le ferme.
+
+Techniquement, l'agent utilise `msg.exe` et non une notification PowerShell : tournant en compte SYSTEM (session 0, sans bureau), une notification classique ne serait jamais visible. `msg.exe` envoie le message vers la session interactive de l'utilisateur connecté.
+
+**La coupure n'est jamais temporaire** : elle reste active tant qu'un administrateur ne la lève pas depuis le dashboard.
+
+**Panneau Surveillance** — la fiche d'un poste comporte aussi un bouton pour le retirer de la surveillance (ou l'y remettre), avec le même principe de traçabilité.
+
 ## 10. Mise en place des fonctionnalités avancées (anomalies, appareils inconnus, notifications, disponibilité)
 
 Ces 4 fonctionnalités s'ajoutent au socle déjà installé. Si vous avez suivi les étapes 1 à 9 ci-dessus avec la version actuelle de `database/schema.sql`, les tables et colonnes nécessaires existent déjà (rien à migrer). Il reste à les activer et à les configurer.

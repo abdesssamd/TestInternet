@@ -137,17 +137,24 @@ final class AgentModel
      * Ne touche pas a `internet_block_applied` : c'est l'agent qui confirme
      * l'application reelle lors de son prochain rapport.
      */
-    public static function setInternetBlocked(int $id, bool $blocked, string $byUsername): void
+    public static function setInternetBlocked(int $id, bool $blocked, string $byUsername, ?string $reason = null): void
     {
         $pdo = Database::getConnection();
         $stmt = $pdo->prepare(
             'UPDATE agents
-                SET internet_blocked  = :b,
-                    internet_block_at = NOW(),
-                    internet_block_by = :by
+                SET internet_blocked      = :b,
+                    internet_block_at     = NOW(),
+                    internet_block_by     = :by,
+                    internet_block_reason = :reason
               WHERE id = :id'
         );
-        $stmt->execute(['b' => $blocked ? 1 : 0, 'by' => $byUsername, 'id' => $id]);
+        $stmt->execute([
+            'b'      => $blocked ? 1 : 0,
+            'by'     => $byUsername,
+            // Le motif ne concerne que la coupure : on l'efface au retablissement.
+            'reason' => $blocked ? $reason : null,
+            'id'     => $id,
+        ]);
     }
 
     /**

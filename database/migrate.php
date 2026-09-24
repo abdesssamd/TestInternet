@@ -16,6 +16,62 @@ require_once __DIR__ . '/../server/config/database.php';
 
 $pdo = Database::getConnection();
 
+/**
+ * Decoupe un script SQL en instructions.
+ *
+ * Un simple explode(';') casse des qu'un point-virgule apparait dans une
+ * chaine (typiquement un COMMENT '...'), produisant des instructions
+ * tronquees et une erreur de syntaxe. On ignore donc les ';' situes a
+ * l'interieur des chaines quotees.
+ *
+ * @return string[]
+ */
+function splitSqlStatements(string $sql): array
+{
+    $statements = [];
+    $current = '';
+    $quote = null;
+    $len = strlen($sql);
+
+    for ($i = 0; $i < $len; $i++) {
+        $ch = $sql[$i];
+
+        if ($quote !== null) {
+            $current .= $ch;
+            if ($ch === '\\' && $i + 1 < $len) {   // echappement : on avale le suivant
+                $current .= $sql[++$i];
+            } elseif ($ch === $quote) {
+                $quote = null;
+            }
+            continue;
+        }
+
+        if ($ch === "'" || $ch === '"' || $ch === '`') {
+            $quote = $ch;
+            $current .= $ch;
+            continue;
+        }
+
+        if ($ch === ';') {
+            $trimmed = trim($current);
+            if ($trimmed !== '') {
+                $statements[] = $trimmed;
+            }
+            $current = '';
+            continue;
+        }
+
+        $current .= $ch;
+    }
+
+    $trimmed = trim($current);
+    if ($trimmed !== '') {
+        $statements[] = $trimmed;
+    }
+
+    return $statements;
+}
+
 $files = glob(__DIR__ . '/migration_*.sql') ?: [];
 sort($files);
 

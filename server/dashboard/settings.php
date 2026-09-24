@@ -120,6 +120,7 @@ $csrfToken = Csrf::token();
 
 <script src="<?= APP_BASE_PATH ?>/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="<?= APP_BASE_PATH ?>/assets/js/app.js"></script>
+<script src="<?= APP_BASE_PATH ?>/assets/js/notifications.js"></script>
 <script>
 const CSRF_TOKEN = <?= json_encode($csrfToken) ?>;
 

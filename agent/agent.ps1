@@ -267,14 +267,47 @@ function Disable-InternetBlock {
     }
 }
 
+# Message affiche a l'utilisateur du poste.
+#
+# L'agent tourne en SYSTEM (session 0, sans bureau) : une notification
+# PowerShell classique n'apparaitrait donc jamais a l'ecran. msg.exe, lui,
+# envoie le message vers la session interactive de l'utilisateur connecte.
+function Show-UserMessage {
+    param([string]$Text)
+
+    try {
+        $msg = Join-Path $env:SystemRoot "System32\msg.exe"
+        if (-not (Test-Path $msg)) {
+            return   # editions Windows sans msg.exe (rare) : on n'echoue pas pour autant
+        }
+        # "*" = toutes les sessions actives du poste. /TIME:0 = le message
+        # reste affiche jusqu'a ce que l'utilisateur le ferme.
+        & $msg * /TIME:0 $Text 2>$null
+    } catch {
+        Write-AgentLog "Notification utilisateur impossible : $($_.Exception.Message)" "WARN"
+    }
+}
+
 function Sync-InternetBlockState {
-    param([bool]$ShouldBlock)
+    param([bool]$ShouldBlock, [string]$Reason = "")
 
     $isBlocked = Test-InternetBlockActive
     if ($ShouldBlock -and -not $isBlocked) {
-        Enable-InternetBlock | Out-Null
+        if (Enable-InternetBlock) {
+            $text = "ACCES INTERNET INTERDIT SUR CE POSTE`r`n`r`n"
+            $text += "La connexion Internet a ete desactivee par l'administrateur reseau."
+            if (-not [string]::IsNullOrWhiteSpace($Reason)) {
+                $text += "`r`n`r`nMotif : $Reason"
+            }
+            $text += "`r`n`r`nLe reseau local reste accessible."
+            $text += "`r`nContactez votre administrateur pour le retablissement."
+            Show-UserMessage -Text $text
+        }
     } elseif (-not $ShouldBlock -and $isBlocked) {
-        Disable-InternetBlock | Out-Null
+        if (Disable-InternetBlock) {
+            Show-UserMessage -Text ("ACCES INTERNET RETABLI`r`n`r`n" +
+                "La connexion Internet de ce poste a ete reactivee par l'administrateur.")
+        }
     }
 }
 
@@ -297,7 +330,11 @@ function Send-Report {
         # canal descendant (aucun port n'est ouvert sur le poste).
         if ($response -and $response.commands) {
             try {
-                Sync-InternetBlockState -ShouldBlock ([bool]$response.commands.block_internet)
+                $reason = ""
+                if ($response.commands.PSObject.Properties.Name -contains 'block_reason' -and $response.commands.block_reason) {
+                    $reason = [string]$response.commands.block_reason
+                }
+                Sync-InternetBlockState -ShouldBlock ([bool]$response.commands.block_internet) -Reason $reason
             } catch {
                 Write-AgentLog "Erreur application consigne Internet : $($_.Exception.Message)" "ERROR"
             }

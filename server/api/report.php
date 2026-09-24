@@ -255,8 +255,12 @@ try {
     http_response_code(200);
     echo json_encode([
         'status' => 'ok',
-        // Consigne a appliquer par l'agent des ce cycle.
-        'commands' => ['block_internet' => $wanted],
+        // Consigne a appliquer par l'agent des ce cycle. Le motif accompagne
+        // l'ordre pour etre affiche a l'utilisateur du poste.
+        'commands' => [
+            'block_internet' => $wanted,
+            'block_reason'   => $wanted ? ($blockState['internet_block_reason'] ?? null) : null,
+        ],
     ]);
 } catch (Throwable $e) {
     if ($pdo->inTransaction()) {

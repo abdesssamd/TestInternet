@@ -53,6 +53,7 @@ $activePage = 'availability';
 
 <script src="<?= APP_BASE_PATH ?>/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="<?= APP_BASE_PATH ?>/assets/js/app.js"></script>
+<script src="<?= APP_BASE_PATH ?>/assets/js/notifications.js"></script>
 <script>
 function pctBadge(pct) {
     let cls = 'on';

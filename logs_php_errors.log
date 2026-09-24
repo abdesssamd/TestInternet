@@ -23,3 +23,13 @@ Stack trace:
 #0 C:\Users\MICROTECH\AppData\Local\Temp\claude\e--SpeedZ\9a6ce3ba-f609-486e-aad2-fabf81c928db\scratchpad\cols.php(7): PDO->prepare('SHOW COLUMNS FR...')
 #1 {main}
   thrown in C:\Users\MICROTECH\AppData\Local\Temp\claude\e--SpeedZ\9a6ce3ba-f609-486e-aad2-fabf81c928db\scratchpad\cols.php on line 7
+[24-Sep-2026 11:52:18 Europe/Paris] PHP Fatal error:  Uncaught PDOException: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 in E:\xamp8.1\htdocs\MONITOR\database\migrate.php:85
+Stack trace:
+#0 E:\xamp8.1\htdocs\MONITOR\database\migrate.php(85): PDO->prepare('SHOW COLUMNS FR...')
+#1 {main}
+  thrown in E:\xamp8.1\htdocs\MONITOR\database\migrate.php on line 85
+[24-Sep-2026 11:53:09 Europe/Paris] PHP Fatal error:  Uncaught PDOException: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1 in E:\xamp8.1\htdocs\MONITOR\database\migrate.php:141
+Stack trace:
+#0 E:\xamp8.1\htdocs\MONITOR\database\migrate.php(141): PDO->prepare('SHOW COLUMNS FR...')
+#1 {main}
+  thrown in E:\xamp8.1\htdocs\MONITOR\database\migrate.php on line 141

@@ -4,6 +4,9 @@
         <h5 class="mb-0"><?= htmlspecialchars($pageTitle ?? '', ENT_QUOTES) ?></h5>
     </div>
     <div class="d-flex align-items-center gap-3">
+        <button id="notifyToggle" class="im-theme-toggle" title="Activer les notifications du navigateur">
+            <i class="bi bi-bell"></i>
+        </button>
         <button id="themeToggle" class="im-theme-toggle" title="Basculer le theme">
             <i class="bi bi-moon-stars"></i>
         </button>

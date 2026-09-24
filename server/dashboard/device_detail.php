@@ -36,6 +36,7 @@ $activePage = 'devices';
 <script src="<?= APP_BASE_PATH ?>/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="<?= APP_BASE_PATH ?>/assets/vendor/chartjs/chart.umd.min.js"></script>
 <script src="<?= APP_BASE_PATH ?>/assets/js/app.js"></script>
+<script src="<?= APP_BASE_PATH ?>/assets/js/notifications.js"></script>
 <script>
 const deviceId = <?= json_encode($id) ?>;
 const CSRF_TOKEN = <?= json_encode(Csrf::token()) ?>;
@@ -55,34 +56,79 @@ function internetBlockPanel(d) {
         etat = '<span class="badge bg-success"><i class="bi bi-check-circle"></i> Internet autorise</span>';
     }
 
-    const par = d.internet_block_by
-        ? `<div class="text-muted small mt-1">Derniere action par ${IM.escapeHtml(d.internet_block_by)}</div>`
-        : '';
+    let details = '';
+    if (wanted) {
+        const parts = [];
+        if (d.internet_block_reason) {
+            parts.push(`<strong>Motif :</strong> ${IM.escapeHtml(d.internet_block_reason)}`);
+        }
+        if (d.internet_block_by) {
+            parts.push(`Coupe par ${IM.escapeHtml(d.internet_block_by)}`);
+        }
+        if (d.internet_block_at) {
+            parts.push(IM.timeAgo(d.internet_block_at));
+        }
+        if (parts.length) {
+            details = `<div class="text-muted small mt-1">${parts.join(' &middot; ')}</div>`;
+        }
+    } else if (d.internet_block_by) {
+        details = `<div class="text-muted small mt-1">Derniere action par ${IM.escapeHtml(d.internet_block_by)}</div>`;
+    }
 
-    const bouton = wanted
-        ? `<button class="btn btn-sm btn-success" onclick="setInternetBlocked(false)"><i class="bi bi-play-circle"></i> Retablir Internet</button>`
-        : `<button class="btn btn-sm btn-danger" onclick="setInternetBlocked(true)"><i class="bi bi-slash-circle"></i> Couper Internet</button>`;
+    // La coupure n'expire pas : elle reste active tant qu'un administrateur
+    // ne la leve pas. Le formulaire de motif n'apparait donc qu'a la coupure.
+    const zoneAction = wanted
+        ? `<button class="btn btn-sm btn-success" onclick="setInternetBlocked(false)">
+               <i class="bi bi-play-circle"></i> Retablir Internet
+           </button>`
+        : `<div class="d-flex gap-2 align-items-start flex-wrap justify-content-end">
+               <input type="text" id="blockReason" class="form-control form-control-sm"
+                      style="max-width:240px" maxlength="255"
+                      placeholder="Motif (optionnel)">
+               <button class="btn btn-sm btn-danger" onclick="setInternetBlocked(true)">
+                   <i class="bi bi-slash-circle"></i> Couper Internet
+               </button>
+           </div>`;
 
     return `
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
             <div>
                 ${etat}
-                ${par}
-                <div class="form-text mb-0">Le poste reste joignable sur le reseau local : seul l'acces Internet est bloque.</div>
+                ${details}
+                <div class="form-text mb-0">
+                    Le poste reste joignable sur le reseau local : seul l'acces Internet est bloque.
+                    La coupure reste active jusqu'a ce qu'un administrateur la leve.
+                </div>
             </div>
-            ${bouton}
+            ${zoneAction}
         </div>
         <div id="blockResult" class="mt-2"></div>
     `;
 }
 
 async function setInternetBlocked(blocked) {
-    const texte = blocked
-        ? "Couper l'acces Internet de ce poste ?
+    let reason = null;
+    if (blocked) {
+        const field = document.getElementById('blockReason');
+        reason = field ? field.value.trim() : '';
+        const suffixe = reason ? `
 
-Le poste restera joignable sur le reseau local. L'ordre sera applique au prochain rapport de l'agent (jusqu'a 1 minute)."
-        : "Retablir l'acces Internet de ce poste ?";
-    if (!confirm(texte)) return;
+Motif : ${reason}` : '';
+        if (!confirm(
+            "Couper l'acces Internet de ce poste ?
+
+"
+            + "Le poste restera joignable sur le reseau local.
+"
+            + "L'ordre sera applique au prochain rapport de l'agent (jusqu'a 1 minute).
+"
+            + "La coupure restera active jusqu'a ce que vous la leviez."
+            + suffixe)) {
+            return;
+        }
+    } else if (!confirm("Retablir l'acces Internet de ce poste ?")) {
+        return;
+    }
 
     const zone = document.getElementById('blockResult');
     zone.innerHTML = '<div class="text-muted small">Envoi de la consigne...</div>';
@@ -91,12 +137,54 @@ Le poste restera joignable sur le reseau local. L'ordre sera applique au prochai
             action: 'set_internet_blocked',
             id: deviceId,
             blocked: blocked,
+            reason: reason || '',
             csrf_token: CSRF_TOKEN,
         });
         zone.innerHTML = `<div class="alert alert-info py-2 small mb-0">${IM.escapeHtml(r.message)}</div>`;
         load();
     } catch (e) {
-        zone.innerHTML = '<div class="alert alert-danger py-2 small mb-0">Erreur : la consigne n'a pas pu etre enregistree.</div>';
+        zone.innerHTML = '<div class="alert alert-danger py-2 small mb-0">Erreur : consigne non enregistree.</div>';
+    }
+}
+
+function monitoringPanel(d) {
+    const on = Number(d.is_monitored) !== 0;
+    const etat = on
+        ? '<span class="badge bg-success"><i class="bi bi-eye"></i> Sous surveillance</span>'
+        : '<span class="badge bg-secondary"><i class="bi bi-eye-slash"></i> Hors surveillance</span>';
+    const bouton = on
+        ? `<button class="btn btn-sm btn-outline-secondary" onclick="setMonitored(false)">
+               <i class="bi bi-eye-slash"></i> Retirer de la surveillance
+           </button>`
+        : `<button class="btn btn-sm btn-outline-primary" onclick="setMonitored(true)">
+               <i class="bi bi-eye"></i> Remettre sous surveillance
+           </button>`;
+    return `
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                ${etat}
+                <div class="form-text mb-0">Un poste detecte est place sous surveillance par defaut.</div>
+            </div>
+            ${bouton}
+        </div>
+        <div id="monitorResult" class="mt-2"></div>
+    `;
+}
+
+async function setMonitored(on) {
+    const zone = document.getElementById('monitorResult');
+    zone.innerHTML = '<div class="text-muted small">Enregistrement...</div>';
+    try {
+        const r = await IM.apiPost('/agents_admin.php', {
+            action: 'set_monitored',
+            id: deviceId,
+            monitored: on,
+            csrf_token: CSRF_TOKEN,
+        });
+        zone.innerHTML = `<div class="alert alert-info py-2 small mb-0">${IM.escapeHtml(r.message)}</div>`;
+        load();
+    } catch (e) {
+        zone.innerHTML = '<div class="alert alert-danger py-2 small mb-0">Erreur : modification non enregistree.</div>';
     }
 }
 
@@ -188,6 +276,11 @@ async function load() {
             <div class="im-card mb-3">
                 <h6 class="mb-2"><i class="bi bi-shield-slash"></i> Acces Internet</h6>
                 ${internetBlockPanel(data.device)}
+            </div>
+
+            <div class="im-card mb-3">
+                <h6 class="mb-2"><i class="bi bi-eye"></i> Surveillance</h6>
+                ${monitoringPanel(data.device)}
             </div>
 
             <div class="im-card">
