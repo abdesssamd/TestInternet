@@ -36,6 +36,18 @@ if ([string]::IsNullOrWhiteSpace($ServerUrl)) {
     $ServerUrl = Read-Host "Adresse du serveur (ex: 192.168.1.10 ou http://192.168.1.10/MONITOR/server/api/report.php)"
 }
 
+# Refus de la valeur d'exemple : si server.txt n'a pas ete personnalise, on
+# s'arrete ici plutot que d'installer un agent qui ne joindra jamais le serveur
+# (symptome : timeouts a repetition dans agent.log).
+if ($ServerUrl -match 'REMPLACEZ' -or $ServerUrl -match '^(https?://)?192\.168\.1\.10(/|$)') {
+    Write-Host ""
+    Write-Host "[ERREUR] L'adresse du serveur est encore la valeur d'exemple (192.168.1.10)." -ForegroundColor Red
+    Write-Host "         Ouvrez server.txt et remplacez-la par l'adresse reelle de votre serveur," -ForegroundColor Yellow
+    Write-Host "         ou relancez avec :  install.ps1 -ServerUrl <adresse>" -ForegroundColor Yellow
+    Write-Host ""
+    exit 1
+}
+
 # Tolerance de saisie : on accepte "192.168.1.10", "192.168.1.10/MONITOR",
 # ou l'URL complete, et on reconstruit l'adresse de report.php.
 $ServerUrl = $ServerUrl.Trim()
@@ -113,6 +125,12 @@ Copy-Item -Path (Join-Path $sourceDir "agent.ps1") -Destination $InstallDir -For
 Write-Step "Fichiers copies"
 
 # --- 3. Generation de la configuration ---
+# On affiche l'URL retenue : c'est la valeur qui finira dans config.ps1, et
+# la cause la plus frequente d'un agent qui timeout est une URL inattendue.
+Write-Host ""
+Write-Host "  Serveur cible : $ServerUrl" -ForegroundColor Cyan
+Write-Host ""
+
 $neighborsUrl = $ServerUrl -replace 'report\.php$', 'neighbors.php'
 $configContent = @"
 `$ServerUrl       = "$ServerUrl"
@@ -150,19 +168,55 @@ try {
     exit 1
 }
 
-# --- 5. Test de connexion serveur + premier rapport ---
-Start-Sleep -Seconds 3
+# --- 5. Test de connexion reelle au serveur ---
+# On contacte le serveur AVANT de conclure : sans cela, une URL erronee ne se
+# revele que plus tard, sous forme de timeouts repetes dans agent.log.
+$serverReachable = $false
+try {
+    $probe = Invoke-WebRequest -Uri $ServerUrl -Method Get -TimeoutSec 8 -UseBasicParsing -ErrorAction Stop
+    # report.php n'accepte que POST : un 405 prouve que le script repond bien.
+    $serverReachable = $true
+} catch {
+    $status = $null
+    if ($_.Exception.Response) { try { $status = [int]$_.Exception.Response.StatusCode } catch {} }
+    if ($status -eq 405 -or $status -eq 400 -or $status -eq 401) {
+        $serverReachable = $true   # le serveur repond, c'est ce qu'on teste ici
+    } else {
+        Write-Step "Connexion au serveur" $false
+        Write-Host "         URL testee : $ServerUrl" -ForegroundColor Yellow
+        if ($status) {
+            Write-Host "         Reponse HTTP $status" -ForegroundColor Yellow
+        } else {
+            Write-Host "         $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+        Write-Host ""
+        Write-Host "  Verifiez : l'adresse dans server.txt, qu'Apache tourne sur le serveur," -ForegroundColor Yellow
+        Write-Host "  et que le pare-feu du serveur autorise le port 80 depuis ce poste." -ForegroundColor Yellow
+        Write-Host ""
+    }
+}
+if ($serverReachable) {
+    Write-Step "Connexion au serveur verifiee ($ServerUrl)"
+}
+
+# --- 6. Premier rapport ---
+Start-Sleep -Seconds 2
 try {
     Push-Location $InstallDir
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $InstallDir "agent.ps1")
     Pop-Location
-    Write-Step "Connexion serveur verifiee"
     Write-Step "Premier rapport envoye (voir agent.log pour le detail)"
 } catch {
-    Write-Step "Connexion serveur verifiee" $false
+    Write-Step "Premier rapport envoye" $false
     Write-Host $_.Exception.Message -ForegroundColor Red
 }
 
 Write-Host ""
-Write-Host "Installation terminee." -ForegroundColor Cyan
-Write-Host "Log agent : $InstallDir\agent.log"
+if ($serverReachable) {
+    Write-Host "Installation terminee." -ForegroundColor Cyan
+} else {
+    Write-Host "Installation terminee AVEC AVERTISSEMENT : serveur injoignable." -ForegroundColor Yellow
+    Write-Host "L'agent est installe et reessaiera automatiquement toutes les $IntervalSeconds s." -ForegroundColor Yellow
+}
+Write-Host "Serveur    : $ServerUrl"
+Write-Host "Log agent  : $InstallDir\agent.log"

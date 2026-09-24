@@ -65,7 +65,7 @@ L'ancien mode par token reste accepté pour les postes déjà déployés : si un
 ### Méthode simple : double-clic (recommandée)
 
 1. Copier le dossier `agent/` sur le poste (partage réseau ou clé USB).
-2. Ouvrir `server.txt` et y mettre l'adresse du serveur, par exemple `192.168.1.10`.
+2. Ouvrir `server.txt` et **remplacer son contenu par l'adresse réelle de votre serveur** (ex : `100.10.1.136`). Le fichier livré contient un texte à remplacer : l'installation s'arrête tant que ce n'est pas fait.
 3. **Double-cliquer sur `INSTALLER.bat`**, puis accepter l'élévation Windows (UAC).
 
 C'est tout : aucune commande à taper, aucun token à copier.
@@ -80,7 +80,7 @@ L'adresse du serveur est tolérante à la saisie : `192.168.1.10`, `192.168.1.10
 
 ```powershell
 cd \\SERVEUR\partage\MONITOR\agent    # ou copier le dossier agent/ localement
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -ServerUrl "192.168.1.10"
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -ServerUrl "100.10.1.136"
 ```
 
 Le paramètre `-AgentToken` n'est plus nécessaire (enregistrement automatique). Il reste accepté pour réinstaller un poste avec son ancien token.
@@ -99,16 +99,60 @@ Résultat attendu :
 =====================================
 
 [OK] Dossier cree (C:\ProgramData\IntranetMonitor)
+[OK] Permissions verrouillees (SYSTEM + Administrateurs uniquement)
 [OK] Fichiers copies
+
+  Serveur cible : http://100.10.1.136/MONITOR/server/api/report.php
+
 [OK] Configuration ecrite
 [OK] Tache planifiee installee
-[OK] Connexion serveur verifiee
+[OK] Connexion au serveur verifiee (http://100.10.1.136/MONITOR/server/api/report.php)
 [OK] Premier rapport envoye (voir agent.log pour le detail)
 
 Installation terminee.
+Serveur    : http://100.10.1.136/MONITOR/server/api/report.php
+Log agent  : C:\ProgramData\IntranetMonitor\agent.log
+```
+
+Si le serveur est injoignable, l'installation se termine quand même (l'agent réessaiera) mais l'avertit explicitement :
+```
+[FAIL] Connexion au serveur
+         URL testee : http://100.10.1.136/MONITOR/server/api/report.php
+         Le délai d'attente de l'opération a expiré.
 ```
 
 Vérifier ensuite dans le dashboard (`/devices`) que le poste apparaît avec son statut.
+
+## 6 bis. L'agent n'atteint pas le serveur (timeouts dans agent.log)
+
+Symptôme dans `C:\ProgramData\IntranetMonitor\agent.log` :
+
+```
+[ERROR] Echec envoi rapport (HTTP ) : Le délai d'attente de l'opération a expiré.
+[ERROR] Echec definitif apres 3 tentatives.
+```
+
+Un `HTTP` vide (sans code) signifie que **le serveur n'a jamais répondu** : ce n'est pas un refus, c'est une adresse injoignable.
+
+**Vérifier l'adresse réellement enregistrée sur le poste :**
+```powershell
+Select-String -Path "C:\ProgramData\IntranetMonitor\config.ps1" -Pattern 'ServerUrl'
+```
+
+**Cause la plus fréquente :** `config.ps1` contient encore une ancienne adresse. Modifier `server.txt` *après* une première installation ne change rien : `server.txt` n'est lu qu'au moment de l'installation et n'est pas copié sur le poste.
+
+**Corriger sans réinstaller :**
+```powershell
+powershell -ExecutionPolicy Bypass -File .\set-server.ps1 -ServerUrl "100.10.1.136"
+```
+Le script affiche l'ancienne adresse, teste la nouvelle avant de l'écrire, met à jour `config.ps1` et relance l'agent.
+
+**Autres causes possibles :**
+- Apache arrêté sur le serveur → `http://<adresse>/MONITOR/` depuis un navigateur du poste.
+- Pare-feu du serveur bloquant le port 80 entrant.
+- Poste sur un autre VLAN / sous-réseau que le serveur.
+
+> Depuis cette version, `install.ps1` **teste la connexion au serveur pendant l'installation** et affiche l'URL retenue. Une adresse injoignable est signalée immédiatement, au lieu d'être découverte plus tard dans les logs. L'installation refuse aussi de démarrer si `server.txt` contient encore la valeur d'exemple.
 
 ## 7. Test de l'agent
 
