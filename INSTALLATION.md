@@ -255,6 +255,49 @@ Concrètement, un utilisateur qui débloque Internet sur son poste ne passe pas 
 > **Limite résiduelle :** un administrateur local déterminé peut modifier l'agent pour qu'il mente sur **les deux** champs à la fois (déclarer le blocage actif *et* déclarer Internet inaccessible). Le recoupement ci-dessus ne le détecte alors plus. Pour un blocage réellement opposable à un utilisateur admin de sa machine, il faut filtrer **en dehors du poste** : règle sur le routeur/pare-feu réseau, ou filtrage par adresse MAC/IP côté switch. Le mécanisme livré ici vise un parc d'utilisateurs standards, pas un adversaire disposant des droits admin.
 
 
+## 9 bis-2. Comment la coupure est appliquee techniquement
+
+La coupure combine **deux couches** posees par l'agent sur le poste :
+
+**1. Pare-feu Windows** (`New-NetFirewallRule`) — deux regles sortantes :
+- *Allow* vers les plages privees (`10/8`, `172.16/12`, `192.168/16`, loopback, multicast) ;
+- *Block* vers tout le reste.
+
+Le pare-feu Windows applique les regles Allow avant les Block : le LAN passe, Internet est coupe.
+
+**2. Redirection DNS** (`Set-DnsClientServerAddress`) — le DNS de chaque carte active est force sur `127.0.0.1`, adresse qui ne resout rien. L'utilisateur obtient une erreur immediate (« site introuvable ») au lieu d'un long delai d'attente.
+
+Les deux couches sont complementaires : le DNS seul serait contourne par un navigateur en **DNS-over-HTTPS** ou par un acces en **IP directe** ; le pare-feu couvre ces cas.
+
+### Reapplication automatique
+
+A **chaque cycle de l'agent (60 s)**, tant que la consigne de coupure est active :
+- si les regles de pare-feu ont ete supprimees -> elles sont reposees ;
+- si le DNS a ete remis manuellement (ou par `ipconfig /renew`) -> il est reneutralise.
+
+L'utilisateur voit alors un message :
+
+```
+ACCES INTERNET TOUJOURS INTERDIT
+
+La restriction a ete retablie automatiquement.
+Contactez votre administrateur.
+```
+
+Une tentative de contournement est tracee dans `agent.log` (`Contournement detecte : ... repose(s).`). La fenetre de fuite maximale est d'une minute.
+
+### Restauration du DNS d'origine
+
+Avant toute modification, l'agent sauvegarde le DNS de chaque carte dans `C:\ProgramData\IntranetMonitor\dns_backup.json`. Au retablissement, la configuration exacte est restauree — y compris le **mode automatique (DHCP)** lorsqu'aucun DNS n'etait fixe manuellement.
+
+### Si le serveur est joint par un nom d'hote
+
+Neutraliser le DNS empecherait l'agent de resoudre le nom de son propre serveur, donc de recevoir l'ordre de retablissement. L'agent ajoute donc l'IP du serveur dans le fichier `hosts` avant de couper, et retire cette entree au retablissement.
+
+**Si l'URL du serveur utilise deja une adresse IP** (cas recommande, ex. `http://100.10.1.136:30/...`), rien de tout cela n'est necessaire : aucune resolution DNS n'intervient.
+
+> **Limite inchangee :** un utilisateur **administrateur de son poste** peut arreter la tache planifiee de l'agent, ce qui suspend la reapplication. Le serveur le detecte (poste hors ligne, ou alerte `INTERNET_BLOCK_BYPASSED` s'il se declare bloque tout en accedant a Internet), mais pour un blocage reellement opposable a un admin local, le filtrage doit se faire **hors du poste** : routeur, pare-feu reseau ou switch.
+
 ## 9 ter. Notifications du navigateur (dashboard)
 
 Une cloche est disponible dans la barre supérieure du dashboard. Au premier clic, le navigateur demande l'autorisation ; ensuite, chaque **nouvelle alerte** déclenche une notification système Windows.

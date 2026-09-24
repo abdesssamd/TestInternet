@@ -267,6 +267,167 @@ function Disable-InternetBlock {
     }
 }
 
+# ---------------------------------------------------------------------
+# Redirection DNS (couche complementaire au pare-feu)
+#
+# Le pare-feu bloque le trafic ; le DNS invalide empeche en plus toute
+# resolution de nom, ce qui rend l'echec immediat et lisible cote client
+# ("site introuvable") plutot qu'un long timeout.
+#
+# Le DNS d'origine de chaque carte est sauvegarde avant modification, pour
+# pouvoir le restaurer exactement au retablissement (y compris le mode
+# automatique/DHCP quand aucun DNS n'etait fixe manuellement).
+# ---------------------------------------------------------------------
+
+# DNS de blocage : adresse de loopback, aucune resolution possible.
+$BlockDnsServer = "127.0.0.1"
+
+function Get-DnsBackupPath {
+    return Join-Path (Split-Path $LogPath -Parent) "dns_backup.json"
+}
+
+function Save-OriginalDns {
+    $path = Get-DnsBackupPath
+    # Ne jamais ecraser une sauvegarde existante : elle contient le vrai
+    # DNS d'origine, alors que l'etat actuel est peut-etre deja bloque.
+    if (Test-Path $path) { return }
+
+    $backup = @()
+    try {
+        Get-NetAdapter -ErrorAction Stop | Where-Object { $_.Status -eq 'Up' } | ForEach-Object {
+            $cfg = Get-DnsClientServerAddress -InterfaceIndex $_.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
+            $backup += [pscustomobject]@{
+                ifIndex = $_.ifIndex
+                name    = $_.Name
+                servers = @($cfg.ServerAddresses)
+            }
+        }
+        $backup | ConvertTo-Json -Depth 4 | Set-Content -Path $path -Encoding UTF8
+        Write-AgentLog "DNS d'origine sauvegarde ($($backup.Count) carte(s))."
+    } catch {
+        Write-AgentLog "Sauvegarde DNS impossible : $($_.Exception.Message)" "WARN"
+    }
+}
+
+function Test-DnsBlockActive {
+    # Actif si TOUTES les cartes actives pointent sur le DNS de blocage.
+    try {
+        $adapters = @(Get-NetAdapter -ErrorAction Stop | Where-Object { $_.Status -eq 'Up' })
+        if ($adapters.Count -eq 0) { return $false }
+
+        foreach ($a in $adapters) {
+            $cfg = Get-DnsClientServerAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
+            $servers = @($cfg.ServerAddresses)
+            if ($servers.Count -ne 1 -or $servers[0] -ne $BlockDnsServer) {
+                return $false
+            }
+        }
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+# Le serveur MONITOR doit rester joignable meme DNS neutralise : sinon
+# l'agent ne recevrait plus l'ordre de retablissement et il faudrait se
+# deplacer sur le poste. Si l'URL du serveur utilise un nom d'hote (et non
+# une IP), on ajoute son IP resolue dans le fichier hosts avant de couper.
+function Protect-ServerResolution {
+    try {
+        $uri = [System.Uri]$ServerUrl
+        $serverHost = $uri.Host
+
+        # Deja une adresse IP : rien a faire, aucune resolution necessaire.
+        $parsed = $null
+        if ([System.Net.IPAddress]::TryParse($serverHost, [ref]$parsed)) {
+            return
+        }
+
+        $ip = (Resolve-DnsName -Name $serverHost -Type A -ErrorAction Stop |
+               Where-Object { $_.IPAddress } | Select-Object -First 1).IPAddress
+        if (-not $ip) { return }
+
+        $hostsFile = Join-Path $env:SystemRoot "System32\drivers\etc\hosts"
+        $marker = "# IntranetMonitor - serveur"
+        $content = Get-Content $hostsFile -Raw -ErrorAction SilentlyContinue
+
+        if ($content -notmatch [regex]::Escape($marker)) {
+            Add-Content -Path $hostsFile -Value "`r`n$marker`r`n$ip`t$serverHost" -Encoding ASCII -ErrorAction Stop
+            Write-AgentLog "Serveur $serverHost fige dans hosts ($ip) pour rester joignable."
+        }
+    } catch {
+        Write-AgentLog "Protection resolution serveur impossible : $($_.Exception.Message)" "WARN"
+    }
+}
+
+function Remove-ServerResolutionEntry {
+    try {
+        $hostsFile = Join-Path $env:SystemRoot "System32\drivers\etc\hosts"
+        $marker = "# IntranetMonitor - serveur"
+        if (-not (Test-Path $hostsFile)) { return }
+
+        $lines = @(Get-Content $hostsFile -ErrorAction Stop)
+        if (($lines -join "`n") -notmatch [regex]::Escape($marker)) { return }
+
+        $out = @()
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i].Trim() -eq $marker) {
+                $i++   # sauter aussi la ligne d'adresse qui suit le marqueur
+                continue
+            }
+            $out += $lines[$i]
+        }
+        Set-Content -Path $hostsFile -Value $out -Encoding ASCII -ErrorAction Stop
+    } catch {
+        Write-AgentLog "Nettoyage hosts impossible : $($_.Exception.Message)" "WARN"
+    }
+}
+
+function Enable-DnsBlock {
+    try {
+        Save-OriginalDns
+        Protect-ServerResolution
+        Get-NetAdapter -ErrorAction Stop | Where-Object { $_.Status -eq 'Up' } | ForEach-Object {
+            Set-DnsClientServerAddress -InterfaceIndex $_.ifIndex -ServerAddresses $BlockDnsServer -ErrorAction Stop
+        }
+        Clear-DnsClientCache -ErrorAction SilentlyContinue
+        return $true
+    } catch {
+        Write-AgentLog "Echec redirection DNS : $($_.Exception.Message)" "ERROR"
+        return $false
+    }
+}
+
+function Disable-DnsBlock {
+    $path = Get-DnsBackupPath
+    try {
+        Remove-ServerResolutionEntry
+        if (Test-Path $path) {
+            $backup = Get-Content $path -Raw | ConvertFrom-Json
+            foreach ($entry in @($backup)) {
+                $servers = @($entry.servers)
+                if ($servers.Count -gt 0) {
+                    Set-DnsClientServerAddress -InterfaceIndex $entry.ifIndex -ServerAddresses $servers -ErrorAction SilentlyContinue
+                } else {
+                    # Aucun DNS fixe a l'origine : retour au mode automatique (DHCP).
+                    Set-DnsClientServerAddress -InterfaceIndex $entry.ifIndex -ResetServerAddresses -ErrorAction SilentlyContinue
+                }
+            }
+            Remove-Item $path -Force -ErrorAction SilentlyContinue
+        } else {
+            # Pas de sauvegarde : on remet toutes les cartes en automatique.
+            Get-NetAdapter -ErrorAction Stop | Where-Object { $_.Status -eq 'Up' } | ForEach-Object {
+                Set-DnsClientServerAddress -InterfaceIndex $_.ifIndex -ResetServerAddresses -ErrorAction SilentlyContinue
+            }
+        }
+        Clear-DnsClientCache -ErrorAction SilentlyContinue
+        return $true
+    } catch {
+        Write-AgentLog "Echec restauration DNS : $($_.Exception.Message)" "ERROR"
+        return $false
+    }
+}
+
 # Message affiche a l'utilisateur du poste.
 #
 # L'agent tourne en SYSTEM (session 0, sans bureau) : une notification
@@ -291,20 +452,51 @@ function Show-UserMessage {
 function Sync-InternetBlockState {
     param([bool]$ShouldBlock, [string]$Reason = "")
 
-    $isBlocked = Test-InternetBlockActive
-    if ($ShouldBlock -and -not $isBlocked) {
-        if (Enable-InternetBlock) {
-            $text = "ACCES INTERNET INTERDIT SUR CE POSTE`r`n`r`n"
-            $text += "La connexion Internet a ete desactivee par l'administrateur reseau."
-            if (-not [string]::IsNullOrWhiteSpace($Reason)) {
-                $text += "`r`n`r`nMotif : $Reason"
-            }
-            $text += "`r`n`r`nLe reseau local reste accessible."
-            $text += "`r`nContactez votre administrateur pour le retablissement."
-            Show-UserMessage -Text $text
+    $fwActive  = Test-InternetBlockActive
+    $dnsActive = Test-DnsBlockActive
+
+    if ($ShouldBlock) {
+        # Reapplication automatique : si l'utilisateur a supprime les regles
+        # ou remis son DNS, on repose la couche manquante a chaque cycle.
+        $wasFullyActive = $fwActive -and $dnsActive
+        $restored = @()
+
+        if (-not $fwActive) {
+            if (Enable-InternetBlock) { $restored += "pare-feu" }
         }
-    } elseif (-not $ShouldBlock -and $isBlocked) {
-        if (Disable-InternetBlock) {
+        if (-not $dnsActive) {
+            if (Enable-DnsBlock) { $restored += "DNS" }
+        }
+
+        if ($restored.Count -gt 0) {
+            if ($wasFullyActive) {
+                # Ne peut pas arriver, garde-fou logique.
+                return
+            }
+            if ($fwActive -or $dnsActive) {
+                # Une seule couche manquait : c'est une tentative de contournement.
+                Write-AgentLog ("Contournement detecte : " + ($restored -join ' et ') + " repose(s).") "WARN"
+                Show-UserMessage -Text ("ACCES INTERNET TOUJOURS INTERDIT`r`n`r`n" +
+                    "La restriction a ete retablie automatiquement.`r`n" +
+                    "Contactez votre administrateur.")
+            } else {
+                # Premiere application de la coupure.
+                $text = "ACCES INTERNET INTERDIT SUR CE POSTE`r`n`r`n"
+                $text += "La connexion Internet a ete desactivee par l'administrateur reseau."
+                if (-not [string]::IsNullOrWhiteSpace($Reason)) {
+                    $text += "`r`n`r`nMotif : $Reason"
+                }
+                $text += "`r`n`r`nLe reseau local reste accessible."
+                $text += "`r`nContactez votre administrateur pour le retablissement."
+                Show-UserMessage -Text $text
+            }
+        }
+    } else {
+        $changed = $false
+        if ($fwActive)  { if (Disable-InternetBlock) { $changed = $true } }
+        if ($dnsActive) { if (Disable-DnsBlock)      { $changed = $true } }
+
+        if ($changed) {
             Show-UserMessage -Text ("ACCES INTERNET RETABLI`r`n`r`n" +
                 "La connexion Internet de ce poste a ete reactivee par l'administrateur.")
         }
