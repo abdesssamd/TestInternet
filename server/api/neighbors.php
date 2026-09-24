@@ -26,7 +26,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$agent = TokenAuth::requireValid();
+// Meme identification que report.php : sans token, le poste est reconnu par
+// son nom de machine (et enregistre au premier contact).
+$resolved = TokenAuth::resolveAgent();
+$agent = $resolved['agent'];
 $agentId = (int) $agent['id'];
 $hostname = $agent['hostname'];
 

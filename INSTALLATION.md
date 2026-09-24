@@ -149,8 +149,28 @@ Le script affiche l'ancienne adresse, teste la nouvelle avant de l'écrire, met 
 
 **Autres causes possibles :**
 - Apache arrêté sur le serveur → `http://<adresse>/MONITOR/` depuis un navigateur du poste.
-- Pare-feu du serveur bloquant le port 80 entrant.
+- Pare-feu du serveur bloquant le port entrant.
 - Poste sur un autre VLAN / sous-réseau que le serveur.
+- **Port non standard oublié** : si le serveur écoute sur un autre port que 80, il doit figurer dans l'adresse (ex : `http://100.10.1.136:30/MONITOR/`). Le port est conservé par le script.
+
+### Erreur HTTP 500 sur report.php
+
+Différent d'un timeout : ici le serveur **répond**, mais échoue. Cause quasi systématique après une mise à jour du code : **les migrations de base n'ont pas été appliquées sur ce serveur**. Le code écrit dans des colonnes qui n'existent pas encore.
+
+```powershell
+php E:\xamp8.1\htdocs\MONITOR\database\migrate.php
+```
+
+Le script applique toutes les migrations manquantes, ignore celles déjà en place (relançable sans risque) et vérifie à la fin que le schéma est complet.
+
+Depuis cette version, l'API renvoie un message explicite dans ce cas plutôt qu'un 500 muet :
+```json
+{"error":"Schema de base incomplet","hint":"Appliquez les migrations : database/migration_*.sql"}
+```
+
+### Erreur HTTP 401 sur neighbors.php
+
+Corrigé : `neighbors.php` exigeait encore un token alors que `report.php` était déjà passé à l'enregistrement automatique. Mettre à jour les fichiers du serveur suffit.
 
 > Depuis cette version, `install.ps1` **teste la connexion au serveur pendant l'installation** et affiche l'URL retenue. Une adresse injoignable est signalée immédiatement, au lieu d'être découverte plus tard dans les logs. L'installation refuse aussi de démarrer si `server.txt` contient encore la valeur d'exemple.
 

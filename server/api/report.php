@@ -259,9 +259,26 @@ try {
         'commands' => ['block_internet' => $wanted],
     ]);
 } catch (Throwable $e) {
-    $pdo->rollBack();
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
     error_log('report.php error: ' . $e->getMessage());
     RateLimiter::log($agentId, 'report', 500);
     http_response_code(500);
-    echo json_encode(['error' => 'Erreur serveur']);
+
+    // Cas tres frequent apres une mise a jour : le code attend des colonnes
+    // que la base n'a pas encore (migrations non appliquees). Sans ce message,
+    // l'agent ne voit qu'un 500 opaque et on cherche du cote reseau pour rien.
+    $message = 'Erreur serveur';
+    $hint = null;
+    if ($e instanceof PDOException && str_contains($e->getMessage(), '1054')) {
+        $message = 'Schema de base incomplet';
+        $hint = 'Appliquez les migrations : database/migration_*.sql (voir INSTALLATION.md).';
+    }
+
+    $body = ['error' => $message];
+    if ($hint !== null) {
+        $body['hint'] = $hint;
+    }
+    echo json_encode($body);
 }
