@@ -449,38 +449,62 @@ function Show-UserMessage {
     }
 }
 
+function Test-IsElevated {
+    try {
+        $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+        return (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch {
+        return $false
+    }
+}
+
 function Sync-InternetBlockState {
     param([bool]$ShouldBlock, [string]$Reason = "")
 
     $fwActive  = Test-InternetBlockActive
     $dnsActive = Test-DnsBlockActive
 
+    # Trace systematique de l'etat : sans elle, un echec silencieux donne
+    # l'impression que "rien ne se passe" sans aucune piste dans le log.
+    Write-AgentLog "Consigne serveur : bloquer=$ShouldBlock | etat local : pare-feu=$fwActive dns=$dnsActive"
+
     if ($ShouldBlock) {
-        # Reapplication automatique : si l'utilisateur a supprime les regles
-        # ou remis son DNS, on repose la couche manquante a chaque cycle.
+        if (-not (Test-IsElevated)) {
+            # Cause n1 d'un blocage inoperant : l'agent ne tourne pas en
+            # administrateur (lancement manuel, ou tache planifiee mal creee).
+            Write-AgentLog "COUPURE IMPOSSIBLE : l'agent ne tourne pas en administrateur. La tache planifiee doit s'executer en tant que SYSTEM." "ERROR"
+            return
+        }
+
         $wasFullyActive = $fwActive -and $dnsActive
+        if ($wasFullyActive) {
+            return   # deja applique, rien a faire
+        }
+
         $restored = @()
+        $failed   = @()
 
         if (-not $fwActive) {
-            if (Enable-InternetBlock) { $restored += "pare-feu" }
+            if (Enable-InternetBlock) { $restored += "pare-feu" } else { $failed += "pare-feu" }
         }
         if (-not $dnsActive) {
-            if (Enable-DnsBlock) { $restored += "DNS" }
+            if (Enable-DnsBlock) { $restored += "DNS" } else { $failed += "DNS" }
+        }
+
+        if ($failed.Count -gt 0) {
+            Write-AgentLog ("ECHEC de la coupure : " + ($failed -join ' et ') + " non applique(s). Voir les erreurs ci-dessus.") "ERROR"
         }
 
         if ($restored.Count -gt 0) {
-            if ($wasFullyActive) {
-                # Ne peut pas arriver, garde-fou logique.
-                return
-            }
+            Write-AgentLog ("Coupure appliquee : " + ($restored -join ' et ') + ".") "WARN"
+
             if ($fwActive -or $dnsActive) {
-                # Une seule couche manquait : c'est une tentative de contournement.
-                Write-AgentLog ("Contournement detecte : " + ($restored -join ' et ') + " repose(s).") "WARN"
+                # Une couche etait deja en place : l'autre a ete defaite puis reposee.
                 Show-UserMessage -Text ("ACCES INTERNET TOUJOURS INTERDIT`r`n`r`n" +
                     "La restriction a ete retablie automatiquement.`r`n" +
                     "Contactez votre administrateur.")
             } else {
-                # Premiere application de la coupure.
                 $text = "ACCES INTERNET INTERDIT SUR CE POSTE`r`n`r`n"
                 $text += "La connexion Internet a ete desactivee par l'administrateur reseau."
                 if (-not [string]::IsNullOrWhiteSpace($Reason)) {
@@ -492,11 +516,20 @@ function Sync-InternetBlockState {
             }
         }
     } else {
+        if (-not $fwActive -and -not $dnsActive) {
+            return   # rien a lever
+        }
+        if (-not (Test-IsElevated)) {
+            Write-AgentLog "RETABLISSEMENT IMPOSSIBLE : l'agent ne tourne pas en administrateur." "ERROR"
+            return
+        }
+
         $changed = $false
         if ($fwActive)  { if (Disable-InternetBlock) { $changed = $true } }
         if ($dnsActive) { if (Disable-DnsBlock)      { $changed = $true } }
 
         if ($changed) {
+            Write-AgentLog "Acces Internet retabli."
             Show-UserMessage -Text ("ACCES INTERNET RETABLI`r`n`r`n" +
                 "La connexion Internet de ce poste a ete reactivee par l'administrateur.")
         }
