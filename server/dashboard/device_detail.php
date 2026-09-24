@@ -111,21 +111,12 @@ async function setInternetBlocked(blocked) {
     if (blocked) {
         const field = document.getElementById('blockReason');
         reason = field ? field.value.trim() : '';
-        const suffixe = reason ? `
-
-Motif : ${reason}` : '';
-        if (!confirm(
-            "Couper l'acces Internet de ce poste ?
-
-"
-            + "Le poste restera joignable sur le reseau local.
-"
-            + "L'ordre sera applique au prochain rapport de l'agent (jusqu'a 1 minute).
-"
-            + "La coupure restera active jusqu'a ce que vous la leviez."
-            + suffixe)) {
-            return;
-        }
+        let texte = "Couper l'acces Internet de ce poste ?\n\n";
+        texte += "Le poste restera joignable sur le reseau local.\n";
+        texte += "L'ordre sera applique au prochain rapport de l'agent (jusqu'a 1 minute).\n";
+        texte += "La coupure restera active jusqu'a ce que vous la leviez.";
+        if (reason) { texte += "\n\nMotif : " + reason; }
+        if (!confirm(texte)) { return; }
     } else if (!confirm("Retablir l'acces Internet de ce poste ?")) {
         return;
     }
