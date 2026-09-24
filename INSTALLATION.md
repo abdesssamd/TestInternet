@@ -38,22 +38,52 @@ php -m | findstr /i "pdo_mysql openssl mbstring json"
    - Mot de passe : `ChangeMoi!2026`
 3. **Changer immédiatement ce mot de passe** depuis **Mon compte** (`http://localhost/MONITOR/server/dashboard/account.php`), accessible dans le menu latéral ou en cliquant sur votre nom d'utilisateur en haut à droite. Le formulaire demande le mot de passe actuel et impose 10 caractères minimum.
 
+## 4 bis. Installation du serveur par l'assistant web (recommandé)
+
+Au lieu d'éditer `config.php` et d'importer le schéma à la main, ouvrez :
+
+```
+http://localhost/MONITOR/install.php
+```
+
+L'assistant vérifie les prérequis (PHP, extensions, droits d'écriture), demande les accès MySQL et le compte administrateur, puis **crée la base, applique le schéma et toutes les migrations, et génère `server/config/config.php`** (avec une clé de chiffrement neuve).
+
+L'assistant se **verrouille automatiquement** une fois l'installation terminée. **Supprimez ensuite `install.php`** : un rappel s'affiche à la dernière étape.
+
 ## 5. Enregistrer un poste (créer un agent)
 
-1. Dans le dashboard, aller sur **Réglages**.
-2. Saisir le nom du poste (ex : `PC-045`) et cliquer sur **Créer**.
-3. Le token généré s'affiche **une seule fois** : le copier immédiatement.
+> **Le système de token a été supprimé.** Il n'y a plus rien à créer à l'avance.
+
+Un poste qui contacte le serveur pour la première fois est **enregistré automatiquement** (il s'identifie par son nom de machine, en-tête `X-Agent-Host`) et placé **sous surveillance par défaut**. C'est l'état sur lequel on préfère se tromper : un poste inconnu est supervisé jusqu'à décision contraire.
+
+Pour retirer un poste de la surveillance : dashboard > **Postes** > le poste concerné. Seul un administrateur peut le faire, et l'action est journalisée (`MONITORING_ENABLED` / `MONITORING_DISABLED`) avec son nom.
+
+L'ancien mode par token reste accepté pour les postes déjà déployés : si un `X-Agent-Token` valide est envoyé, il est utilisé en priorité.
 
 ## 6. Installation de l'agent sur un poste Windows
 
-Ouvrir PowerShell **en administrateur** sur le poste cible :
+### Méthode simple : double-clic (recommandée)
+
+1. Copier le dossier `agent/` sur le poste (partage réseau ou clé USB).
+2. Ouvrir `server.txt` et y mettre l'adresse du serveur, par exemple `192.168.1.10`.
+3. **Double-cliquer sur `INSTALLER.bat`**, puis accepter l'élévation Windows (UAC).
+
+C'est tout : aucune commande à taper, aucun token à copier.
+
+`INSTALLER.bat` règle les deux blocages classiques :
+- **ExecutionPolicy** — PowerShell refuse les `.ps1` par défaut (« l'exécution de scripts est désactivée sur ce système »). Le `.bat` lance PowerShell avec `-ExecutionPolicy Bypass`, sans modifier le réglage de la machine.
+- **Droits administrateur** — le script s'auto-élève via UAC s'il n'est pas déjà lancé en admin.
+
+L'adresse du serveur est tolérante à la saisie : `192.168.1.10`, `192.168.1.10/MONITOR` ou l'URL complète de `report.php` fonctionnent toutes — le script reconstruit l'URL correcte.
+
+### Méthode manuelle (PowerShell)
 
 ```powershell
 cd \\SERVEUR\partage\MONITOR\agent    # ou copier le dossier agent/ localement
-.\install.ps1 -ServerUrl "http://192.168.1.10/MONITOR/server/api/report.php" `
-              -AgentToken "TOKEN_COPIE_DEPUIS_LE_DASHBOARD" `
-              -IntervalSeconds 60
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -ServerUrl "192.168.1.10"
 ```
+
+Le paramètre `-AgentToken` n'est plus nécessaire (enregistrement automatique). Il reste accepté pour réinstaller un poste avec son ancien token.
 
 Le script :
 - crée `C:\ProgramData\IntranetMonitor`
@@ -110,7 +140,9 @@ Supprime la tâche planifiée et le dossier `C:\ProgramData\IntranetMonitor` apr
 
 ## 9. Désactiver un agent sans le désinstaller
 
-Dans le dashboard > Réglages > bouton **Désactiver** en face du poste concerné. L'API rejettera alors ses rapports (HTTP 401) tant qu'il n'est pas réactivé.
+Dans le dashboard > Réglages > bouton **Désactiver** en face du poste concerné. L'API rejettera alors ses rapports (HTTP 403 « Poste desactive par un administrateur ») tant qu'il n'est pas réactivé.
+
+À ne pas confondre avec la **surveillance** (section 5) : un poste désactivé n'est plus accepté du tout par l'API, alors qu'un poste hors surveillance continue d'être joignable mais n'est plus supervisé.
 
 ## 9 bis. Couper l'accès Internet d'un poste à distance
 
@@ -249,6 +281,40 @@ Vérifier manuellement :
 ```powershell
 & "E:\xamp8.1\php\php.exe" "E:\xamp8.1\htdocs\MONITOR\server\cron\offline_sweep.php"
 ```
+
+## Sécurité web (fichiers .htaccess)
+
+Des fichiers `.htaccess` protègent l'installation. Ils nécessitent `AllowOverride All` côté Apache (valeur par défaut sous XAMPP) et les modules `mod_rewrite`, `mod_headers`, `mod_authz_core`.
+
+**Fichiers rendus inaccessibles en HTTP** (réponse `403`) :
+
+| Emplacement | Raison |
+|---|---|
+| `server/config/` | contient `config.php` : mot de passe MySQL et clé de chiffrement |
+| `database/` | schéma et migrations SQL (structure de la base) |
+| `agent/` | `config.ps1` contient l'adresse du serveur et, le cas échéant, un token |
+| `server/models/`, `services/`, `middleware/`, `controllers/`, `cron/` | code interne, inclus par PHP mais jamais téléchargeable |
+| `*.sql`, `*.log`, `*.ps1`, `*.bat`, `*.md`, `*.bak`, fichiers commençant par `.` | blocage global par extension |
+
+Restent accessibles, comme il se doit : `server/api/` (les agents en ont besoin), `server/dashboard/`, `server/assets/` et `install.php`.
+
+**Redirections mises en place** :
+
+| Adresse | Destination |
+|---|---|
+| `/MONITOR/` | `install.php` si l'application n'est pas installée, sinon la page de connexion |
+| `/MONITOR/dashboard` | `server/dashboard/index.php` |
+| `/MONITOR/login` | `server/dashboard/login.php` |
+
+**En-têtes de sécurité** ajoutés : `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: same-origin`. Le listing de répertoire est désactivé (`Options -Indexes`).
+
+Pour vérifier que la protection est active :
+```powershell
+curl.exe -s -o NUL -w "%{http_code}`n" http://localhost/MONITOR/server/config/config.php   # doit afficher 403
+curl.exe -s -o NUL -w "%{http_code}`n" http://localhost/MONITOR/server/dashboard/login.php # doit afficher 200
+```
+
+> Si ces commandes renvoient `200` sur le premier test, `AllowOverride` est probablement à `None` dans la configuration Apache : les `.htaccess` sont alors ignorés.
 
 ## Identifiants par défaut
 

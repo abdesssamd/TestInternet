@@ -13,13 +13,44 @@
 #>
 
 param(
-    [Parameter(Mandatory = $true)][string]$ServerUrl,
-    [Parameter(Mandatory = $true)][string]$AgentToken,
+    # Plus obligatoires : l'URL peut venir de server.txt (a cote de ce script)
+    # et le token n'est plus necessaire (le serveur enregistre les postes
+    # automatiquement au premier contact).
+    [string]$ServerUrl,
+    [string]$AgentToken = "",
     [int]$IntervalSeconds = 60,
     [string]$InstallDir = "C:\ProgramData\IntranetMonitor"
 )
 
 $ErrorActionPreference = "Stop"
+
+# --- Resolution de l'URL serveur -------------------------------------
+# Ordre : parametre -ServerUrl, puis server.txt, puis saisie interactive.
+if ([string]::IsNullOrWhiteSpace($ServerUrl)) {
+    $serverFile = Join-Path $PSScriptRoot "server.txt"
+    if (Test-Path $serverFile) {
+        $ServerUrl = (Get-Content $serverFile -Raw).Trim()
+    }
+}
+if ([string]::IsNullOrWhiteSpace($ServerUrl)) {
+    $ServerUrl = Read-Host "Adresse du serveur (ex: 192.168.1.10 ou http://192.168.1.10/MONITOR/server/api/report.php)"
+}
+
+# Tolerance de saisie : on accepte "192.168.1.10", "192.168.1.10/MONITOR",
+# ou l'URL complete, et on reconstruit l'adresse de report.php.
+$ServerUrl = $ServerUrl.Trim()
+if ($ServerUrl -notmatch '^https?://') {
+    $ServerUrl = "http://$ServerUrl"
+}
+if ($ServerUrl -notmatch 'report\.php$') {
+    $ServerUrl = $ServerUrl.TrimEnd('/')
+    if ($ServerUrl -notmatch '/MONITOR/server/api$') {
+        if ($ServerUrl -match '/MONITOR/server$')      { $ServerUrl += '/api' }
+        elseif ($ServerUrl -match '/MONITOR$')         { $ServerUrl += '/server/api' }
+        else                                           { $ServerUrl += '/MONITOR/server/api' }
+    }
+    $ServerUrl += '/report.php'
+}
 
 function Write-Step {
     param([string]$Message, [bool]$Ok = $true)
@@ -97,9 +128,9 @@ $configContent = @"
 `$GhostScanIntervalMinutes = 15
 `$GhostScanStateFile       = "C:\ProgramData\IntranetMonitor\last_ghost_scan.txt"
 
-`$ConnectTestUrl      = "https://www.msftconnecttest.com/connecttest.txt"
-`$ConnectTestExpected = "Microsoft Connect Test"
-`$DnsTestHost         = "www.msftconnecttest.com"
+`$ConnectTestUrl      = "https://www.google.com/generate_204"
+`$ConnectTestExpected = ""
+`$DnsTestHost         = "google.com"
 `$TcpTestHost         = "1.1.1.1"
 `$TcpTestPort         = 443
 

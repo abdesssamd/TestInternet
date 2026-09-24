@@ -1,0 +1,17 @@
+# Dossier agent : contient config.ps1 (URL du serveur, et token pour les
+# installations anciennes) et les scripts d'installation.
+#
+# Blocage par defaut : rien n'est telechargeable directement en HTTP.
+# Le deploiement se fait par partage reseau ou cle USB (voir INSTALLATION.md).
+#
+# Si vous souhaitez distribuer l'agent par HTTP, servez-le via une page PHP
+# authentifiee plutot que d'ouvrir ce dossier : elle peut generer un ZIP a la
+# volee sans jamais exposer config.ps1.
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

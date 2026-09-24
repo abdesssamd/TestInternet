@@ -102,5 +102,36 @@ if ($action === 'set_internet_blocked') {
     exit;
 }
 
+if ($action === 'set_monitored') {
+    $id = (int) ($payload['id'] ?? 0);
+    $monitored = !empty($payload['monitored']);
+    $agent = $id > 0 ? AgentModel::findById($id) : null;
+
+    if (!$agent) {
+        http_response_code(404);
+        echo json_encode(['error' => 'Agent introuvable']);
+        exit;
+    }
+
+    $by = (string) ($_SESSION['username'] ?? 'inconnu');
+    AgentModel::setMonitored($id, $monitored, $by);
+
+    EventModel::log(
+        $id,
+        $monitored ? 'MONITORING_ENABLED' : 'MONITORING_DISABLED',
+        ($monitored ? 'Surveillance activee' : 'Surveillance retiree')
+            . " pour {$agent['hostname']} par $by"
+    );
+
+    echo json_encode([
+        'status'    => 'ok',
+        'monitored' => $monitored,
+        'message'   => $monitored
+            ? 'Poste remis sous surveillance.'
+            : 'Poste retire de la surveillance.',
+    ]);
+    exit;
+}
+
 http_response_code(400);
 echo json_encode(['error' => 'Action inconnue']);

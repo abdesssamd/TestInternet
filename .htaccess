@@ -1,0 +1,67 @@
+# =====================================================================
+#  INTRANET MONITOR PRO — securite et redirections (racine du projet)
+#
+#  Place dans htdocs/MONITOR/. Necessite AllowOverride All dans la
+#  configuration Apache (c'est le defaut sous XAMPP).
+# =====================================================================
+
+# --- Redirection de confort -----------------------------------------
+# http://serveur/MONITOR/ -> page de connexion du dashboard.
+# Tant que install.php existe, on envoie plutot vers l'assistant.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /MONITOR/
+
+    # Installation pas encore faite (config.php absent) -> assistant
+    RewriteCond %{DOCUMENT_ROOT}/MONITOR/server/config/config.php !-f
+    RewriteCond %{REQUEST_URI} !install\.php$
+    RewriteRule ^$ install.php [R=302,L]
+
+    # Installation faite -> dashboard
+    RewriteCond %{DOCUMENT_ROOT}/MONITOR/server/config/config.php -f
+    RewriteRule ^$ server/dashboard/login.php [R=302,L]
+
+    # Raccourcis pratiques
+    RewriteRule ^dashboard/?$ server/dashboard/index.php [R=302,L]
+    RewriteRule ^login/?$     server/dashboard/login.php [R=302,L]
+</IfModule>
+
+# --- Interdiction du listing de repertoire ---------------------------
+Options -Indexes
+
+# --- Fichiers sensibles : jamais servis ------------------------------
+# Scripts agent (config.ps1 contient l'URL du serveur), dumps SQL,
+# journaux, documentation interne et fichiers de sauvegarde.
+<FilesMatch "\.(sql|log|ps1|bat|md|ini|conf|bak|old|swp|dist|sample)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# --- Fichiers caches (.git, .env, .htaccess...) ----------------------
+<FilesMatch "^\.">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# --- En-tetes de securite -------------------------------------------
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "same-origin"
+</IfModule>
+
+# --- Ne pas divulguer la version de PHP ------------------------------
+<IfModule mod_php.c>
+    php_flag expose_php off
+    php_flag display_errors off
+</IfModule>

@@ -30,9 +30,15 @@ $action = New-ScheduledTaskAction -Execute "powershell.exe" `
 
 $intervalMinutes = [Math]::Max(1, [Math]::Round($IntervalSeconds / 60))
 
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+# Repetition infinie. Attention : -RepetitionDuration ([TimeSpan]::MaxValue)
+# genere une duree de 10 675 199 jours que le planificateur rejette
+# ("valeur incorrectement formatee ou hors limites"). On laisse donc la duree
+# vide, ce qui signifie "indefiniment" pour le planificateur Windows.
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date)
+$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) `
     -RepetitionInterval (New-TimeSpan -Minutes $intervalMinutes) `
-    -RepetitionDuration ([TimeSpan]::MaxValue)
+    -RepetitionDuration ([TimeSpan]::Zero)).Repetition
+$trigger.Repetition.Duration = $null
 
 $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 

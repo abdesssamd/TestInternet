@@ -63,7 +63,14 @@ function Test-InternetHttps {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         $resp = Invoke-WebRequest -Uri $ConnectTestUrl -TimeoutSec $HttpTimeoutSeconds -UseBasicParsing
         $sw.Stop()
-        $ok = ($resp.StatusCode -eq 200) -and ($resp.Content.Trim() -eq $ConnectTestExpected)
+        # Google repond 204 avec un corps vide (generate_204) ; d'autres
+        # endpoints repondent 200 avec un contenu attendu. On accepte les deux :
+        # si $ConnectTestExpected est vide, seul le code HTTP compte.
+        if ([string]::IsNullOrWhiteSpace($ConnectTestExpected)) {
+            $ok = ($resp.StatusCode -eq 200 -or $resp.StatusCode -eq 204)
+        } else {
+            $ok = ($resp.StatusCode -eq 200) -and ($resp.Content.Trim() -eq $ConnectTestExpected)
+        }
         return @{ Ok = $ok; LatencyMs = $sw.ElapsedMilliseconds }
     } catch {
         return @{ Ok = $false; LatencyMs = $null; Error = $_.Exception.Message }
@@ -278,6 +285,7 @@ function Send-Report {
 
     $headers = @{
         "X-Agent-Token" = $AgentToken
+        "X-Agent-Host"  = $env:COMPUTERNAME
         "Content-Type"  = "application/json"
     }
 
@@ -341,6 +349,7 @@ function Send-Neighbors {
     $json = @{ neighbors = $Neighbors } | ConvertTo-Json -Depth 4 -Compress
     $headers = @{
         "X-Agent-Token" = $AgentToken
+        "X-Agent-Host"  = $env:COMPUTERNAME
         "Content-Type"  = "application/json"
     }
 

@@ -30,10 +30,21 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// --- Authentification agent ---
-$agent = TokenAuth::requireValid();
+// --- Identification agent ---
+// Sans token : le poste s'annonce par son nom de machine et est enregistre
+// automatiquement au premier contact, sous surveillance par defaut.
+$resolved = TokenAuth::resolveAgent();
+$agent = $resolved['agent'];
 $agentId = (int) $agent['id'];
 $hostname = $agent['hostname'];
+
+if ($resolved['enrolled']) {
+    EventModel::log(
+        $agentId,
+        'AGENT_AUTO_ENROLLED',
+        "$hostname detecte automatiquement (" . (TokenAuth::clientIp() ?? 'IP inconnue') . ") et place sous surveillance"
+    );
+}
 
 // --- Rate limiting ---
 if (RateLimiter::tooManyRequests($agentId)) {

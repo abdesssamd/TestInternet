@@ -1,0 +1,11 @@
+# Ce dossier contient config.php : identifiants MySQL et cle de chiffrement.
+# Rien ici ne doit jamais etre servi par le serveur web, meme un .php
+# (une mauvaise configuration PHP le renverrait en texte brut).
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

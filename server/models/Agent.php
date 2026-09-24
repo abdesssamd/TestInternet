@@ -49,6 +49,39 @@ final class AgentModel
         ];
     }
 
+    /**
+     * Cree un poste detecte automatiquement lors de son premier rapport.
+     * Il est SOUS SURVEILLANCE par defaut : c'est l'etat sur lequel on veut
+     * se tromper du bon cote. Un administrateur peut l'exclure ensuite.
+     */
+    public static function autoEnroll(string $hostname, ?string $ip): array
+    {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare(
+            'INSERT INTO agents (hostname, is_active, is_monitored, auto_enrolled, first_seen_ip, created_at)
+             VALUES (:hostname, 1, 1, 1, :ip, NOW())'
+        );
+        $stmt->execute(['hostname' => $hostname, 'ip' => $ip]);
+
+        return self::findById((int) $pdo->lastInsertId());
+    }
+
+    /**
+     * Active ou retire la surveillance d'un poste (action administrateur).
+     */
+    public static function setMonitored(int $id, bool $monitored, string $byUsername): void
+    {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare(
+            'UPDATE agents
+                SET is_monitored          = :m,
+                    monitoring_changed_at = NOW(),
+                    monitoring_changed_by = :by
+              WHERE id = :id'
+        );
+        $stmt->execute(['m' => $monitored ? 1 : 0, 'by' => $byUsername, 'id' => $id]);
+    }
+
     public static function updateFromReport(int $agentId, array $data): void
     {
         $pdo = Database::getConnection();

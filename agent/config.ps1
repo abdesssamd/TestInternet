@@ -21,9 +21,9 @@ $GhostScanIntervalMinutes = 15
 $GhostScanStateFile       = "C:\ProgramData\IntranetMonitor\last_ghost_scan.txt"
 
 # Cibles utilisees pour les tests de connectivite Internet
-$ConnectTestUrl      = "https://www.msftconnecttest.com/connecttest.txt"
-$ConnectTestExpected = "Microsoft Connect Test"
-$DnsTestHost         = "www.msftconnecttest.com"
+$ConnectTestUrl      = "https://www.google.com/generate_204"
+$ConnectTestExpected = ""
+$DnsTestHost         = "google.com"
 $TcpTestHost         = "1.1.1.1"
 $TcpTestPort         = 443
 
